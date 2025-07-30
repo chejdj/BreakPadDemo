@@ -1,3 +1,7 @@
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include "common/windows/symbol_collector_client.h"
 
 #include <stdio.h>
@@ -102,7 +106,7 @@ namespace google_breakpad {
     if (!HTTPUpload::SendSimplePostRequest(
         url,
         body,
-        L"application/json",
+        L"Content-Type: application/json",
         timeout_ms,
         &response,
         &response_code)) {

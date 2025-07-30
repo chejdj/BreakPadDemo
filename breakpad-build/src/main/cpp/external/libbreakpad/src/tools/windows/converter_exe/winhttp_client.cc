@@ -26,6 +26,10 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include "tools/windows/converter_exe/winhttp_client.h"
 
 #include <assert.h>
@@ -143,7 +147,7 @@ bool WinHttpClient::Connect(HttpHandle session_handle,
                                          ToHINTERNET(session_handle),
                                          server,
                                          static_cast<INTERNET_PORT>(port),
-                                         NULL));
+                                         0));
   return !!(*connection_handle);
 }
 
@@ -178,16 +182,16 @@ bool WinHttpClient::SendRequest(HttpHandle request_handle,
   return !!::WinHttpSendRequest(ToHINTERNET(request_handle),
                                 headers,
                                 headers_length,
-                                NULL,
+                                nullptr,
                                 0,
                                 WINHTTP_IGNORE_REQUEST_TOTAL_LENGTH,
-                                NULL);
+                                0);
 }
 
 bool WinHttpClient::ReceiveResponse(HttpHandle request_handle) const {
   assert(request_handle);
 
-  return !!::WinHttpReceiveResponse(ToHINTERNET(request_handle), NULL);
+  return !!::WinHttpReceiveResponse(ToHINTERNET(request_handle), nullptr);
 }
 
 bool WinHttpClient::GetHttpStatusCode(HttpHandle request_handle,
@@ -202,7 +206,7 @@ bool WinHttpClient::GetHttpStatusCode(HttpHandle request_handle,
     return false;
   }
 
-  *status_code = static_cast<DWORD>(_tcstol(http_status_string, NULL, 10));
+  *status_code = static_cast<DWORD>(_tcstol(http_status_string, nullptr, 10));
   return true;
 }
 
@@ -221,7 +225,7 @@ bool WinHttpClient::GetContentLength(HttpHandle request_handle,
     *content_length = kUnknownContentLength;
   } else {
     *content_length =
-        static_cast<DWORD>(wcstol(content_length_string, NULL, 10));
+        static_cast<DWORD>(wcstol(content_length_string, nullptr, 10));
   }
   return true;
 }
@@ -291,14 +295,14 @@ HttpClient* CreateWinHttpClient(const TCHAR* url) {
                         path,
                         sizeof(path)/sizeof(path[0]),
                         &port)) {
-    return NULL;
+    return nullptr;
   }
 
   if (_wcsicmp(scheme, L"https") == 0) {
     // Winhttp under WINE doesn't support wildcard certificates, so avoid 
     // to use it if the scheme is https. The caller should fall back to
     // use wininet if NULL is returned.
-    return NULL;
+    return nullptr;
   }
 
   return new internal::WinHttpClient();

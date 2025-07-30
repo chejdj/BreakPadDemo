@@ -31,6 +31,10 @@
 // dwarf2diehandler.cc: Implement the dwarf2reader::DieDispatcher class.
 // See dwarf2diehandler.h for details.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include <assert.h>
 #include <stdint.h>
 
@@ -60,7 +64,7 @@ bool DIEDispatcher::StartCompilationUnit(uint64_t offset, uint8_t address_size,
 
 bool DIEDispatcher::StartDIE(uint64_t offset, enum DwarfTag tag) {
   // The stack entry for the parent of this DIE, if there is one.
-  HandlerStack* parent = die_handlers_.empty() ? NULL : &die_handlers_.top();
+  HandlerStack* parent = die_handlers_.empty() ? nullptr : &die_handlers_.top();
 
   // Does this call indicate that we're done receiving the parent's
   // attributes' values?  If so, call its EndAttributes member function.
@@ -72,7 +76,7 @@ bool DIEDispatcher::StartDIE(uint64_t offset, enum DwarfTag tag) {
       parent->handler_->Finish();
       if (parent->handler_ != root_handler_)
         delete parent->handler_;
-      parent->handler_ = NULL;
+      parent->handler_ = nullptr;
       return false;
     }
   }
@@ -86,7 +90,7 @@ bool DIEDispatcher::StartDIE(uint64_t offset, enum DwarfTag tag) {
     else
       // No parent handler means we're not interested in any of our
       // children.
-      handler = NULL;
+      handler = nullptr;
   } else {
     // This is the root DIE.  For a non-root DIE, the parent's handler
     // decides whether to visit it, but the root DIE has no parent
@@ -95,7 +99,7 @@ bool DIEDispatcher::StartDIE(uint64_t offset, enum DwarfTag tag) {
     if (root_handler_->StartRootDIE(offset, tag))
       handler = root_handler_;
     else
-      handler = NULL;
+      handler = nullptr;
   }
 
   // Push a handler stack entry for this new handler. As an
@@ -110,7 +114,7 @@ bool DIEDispatcher::StartDIE(uint64_t offset, enum DwarfTag tag) {
     die_handlers_.push(entry);
   }
 
-  return handler != NULL;
+  return handler != nullptr;
 }
 
 void DIEDispatcher::EndDIE(uint64_t offset) {

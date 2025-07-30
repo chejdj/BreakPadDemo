@@ -26,6 +26,10 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include <set>
 #include <string>
 
@@ -47,7 +51,7 @@ TEST(DirectoryReaderTest, CompareResults) {
   std::set<string> dent_set;
 
   DIR* const dir = opendir("/proc/self");
-  ASSERT_TRUE(dir != NULL);
+  ASSERT_TRUE(dir != nullptr);
 
   struct dirent* dent;
   while ((dent = readdir(dir)))

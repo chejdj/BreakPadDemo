@@ -31,11 +31,17 @@
 // Implementation of LineInfo, CompilationUnit,
 // and CallFrameInfo. See dwarf2reader.h for details.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include "common/dwarf/dwarf2reader.h"
 
+#include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include <algorithm>
 #include <map>
@@ -63,6 +69,11 @@ const SectionMap::const_iterator GetSectionByName(const SectionMap&
   std::string macho_name("__");
   macho_name += name + 1;
   iter = sections.find(macho_name);
+
+  // .debug_str_offsets is alternatively named .debug_str_offs, so try both
+  if (iter == sections.end() && std::string(name) == ".debug_str_offsets") {
+    return GetSectionByName(sections, ".debug_str_offs");
+  }
   return iter;
 }
 
@@ -71,14 +82,15 @@ CompilationUnit::CompilationUnit(const string& path,
                                  ByteReader* reader, Dwarf2Handler* handler)
     : path_(path), offset_from_section_start_(offset), reader_(reader),
       sections_(sections), handler_(handler), abbrevs_(),
-      string_buffer_(NULL), string_buffer_length_(0),
-      line_string_buffer_(NULL), line_string_buffer_length_(0),
-      str_offsets_buffer_(NULL), str_offsets_buffer_length_(0),
-      addr_buffer_(NULL), addr_buffer_length_(0),
+      string_buffer_(nullptr), string_buffer_length_(0),
+      line_string_buffer_(nullptr), line_string_buffer_length_(0),
+      str_offsets_buffer_(nullptr), str_offsets_buffer_length_(0),
+      addr_buffer_(nullptr), addr_buffer_length_(0),
       is_split_dwarf_(false), is_type_unit_(false), dwo_id_(0), dwo_name_(),
-      skeleton_dwo_id_(0), ranges_base_(0), addr_base_(0),
-      str_offsets_base_(0), have_checked_for_dwp_(false), dwp_path_(),
-      dwp_byte_reader_(), dwp_reader_() {}
+      skeleton_dwo_id_(0), addr_base_(0),
+      str_offsets_base_(0), have_checked_for_dwp_(false),
+      should_process_split_dwarf_(false), low_pc_(0),
+      has_source_line_info_(false), source_line_offset_(0) {}
 
 // Initialize a compilation unit from a .dwo or .dwp file.
 // In this case, we need the .debug_addr section from the
@@ -87,16 +99,10 @@ CompilationUnit::CompilationUnit(const string& path,
 // the executable file, and call it as if we were still
 // processing the original compilation unit.
 
-void CompilationUnit::SetSplitDwarf(const uint8_t* addr_buffer,
-                                    uint64_t addr_buffer_length,
-                                    uint64_t addr_base,
-                                    uint64_t ranges_base,
+void CompilationUnit::SetSplitDwarf(uint64_t addr_base,
                                     uint64_t dwo_id) {
   is_split_dwarf_ = true;
-  addr_buffer_ = addr_buffer;
-  addr_buffer_length_ = addr_buffer_length;
   addr_base_ = addr_base;
-  ranges_base_ = ranges_base;
   skeleton_dwo_id_ = dwo_id;
 }
 
@@ -174,7 +180,7 @@ void CompilationUnit::ReadAbbrevs() {
                            value);
       abbrev.attributes.push_back(abbrev_attr);
     }
-    abbrevs_->push_back(abbrev);
+    abbrevs_->push_back(std::move(abbrev));
   }
 
   // Account of cases where entries are out of order.
@@ -286,8 +292,8 @@ const uint8_t* CompilationUnit::SkipAttribute(const uint8_t* start,
     case DW_FORM_sec_offset:
       return start + reader_->OffsetSize();
   }
-  fprintf(stderr,"Unhandled form type");
-  return NULL;
+  fprintf(stderr,"Unhandled form type 0x%x\n", form);
+  return nullptr;
 }
 
 // Read the abbreviation offset from a compilation unit header.
@@ -370,7 +376,7 @@ void CompilationUnit::ReadHeader() {
         break;
       case DW_UT_type:
       case DW_UT_split_type:
-	is_type_unit_ = true;
+        is_type_unit_ = true;
         headerptr += ReadTypeSignature(headerptr);
         headerptr += ReadTypeOffset(headerptr);
         break;
@@ -396,7 +402,13 @@ uint64_t CompilationUnit::Start() {
 
   // Set up our buffer
   buffer_ = iter->second.first + offset_from_section_start_;
-  buffer_length_ = iter->second.second - offset_from_section_start_;
+  if (is_split_dwarf_) {
+    iter = GetSectionByName(sections_, ".debug_info_offset");
+    assert(iter != sections_.end());
+    buffer_length_ = iter->second.second;
+  } else {
+    buffer_length_ = iter->second.second - offset_from_section_start_;
+  }
 
   // Read the header
   ReadHeader();
@@ -430,6 +442,12 @@ uint64_t CompilationUnit::Start() {
     string_buffer_length_ = iter->second.second;
   }
 
+  iter = GetSectionByName(sections_, ".debug_line");
+  if (iter != sections_.end()) {
+    line_buffer_ = iter->second.first;
+    line_buffer_length_ = iter->second.second;
+  }
+
   // Set the line string section if we have one.
   iter = GetSectionByName(sections_, ".debug_line_str");
   if (iter != sections_.end()) {
@@ -452,15 +470,18 @@ uint64_t CompilationUnit::Start() {
   }
 
   // Now that we have our abbreviations, start processing DIE's.
-  ProcessDIEs();
+  if (!ProcessDIEs()) {
+    // If ProcessDIEs fails return 0, ourlength must be non-zero
+    // as it is equal to header_.length + (12 or 4)
+    return 0;
+  }
 
   // If this is a skeleton compilation unit generated with split DWARF,
   // and the client needs the full debug info, we need to find the full
   // compilation unit in a .dwo or .dwp file.
-  if (!is_split_dwarf_
-      && dwo_name_ != NULL
-      && handler_->NeedSplitDebugInfo())
-    ProcessSplitDwarf();
+  should_process_split_dwarf_ =
+      !is_split_dwarf_ && dwo_name_ != nullptr &&
+      handler_->NeedSplitDebugInfo();
 
   return ourlength;
 }
@@ -503,7 +524,7 @@ const uint8_t* CompilationUnit::ProcessOffsetBaseAttribute(
                                                                      &len));
       start += len;
       return ProcessOffsetBaseAttribute(dieoffset, start, attr, form,
-					   implicit_const);
+                                        implicit_const);
 
     case DW_FORM_flag_present:
       return start;
@@ -559,10 +580,10 @@ const uint8_t* CompilationUnit::ProcessOffsetBaseAttribute(
       // offset size.
       assert(header_.version >= 2);
       if (header_.version == 2) {
-	reader_->ReadAddress(start);
+        reader_->ReadAddress(start);
         return start + reader_->AddressSize();
       } else if (header_.version >= 3) {
-	reader_->ReadOffset(start);
+        reader_->ReadOffset(start);
         return start + reader_->OffsetSize();
       }
       break;
@@ -638,8 +659,8 @@ const uint8_t* CompilationUnit::ProcessOffsetBaseAttribute(
       reader_->ReadUnsignedLEB128(start, &len);
       return start + len;
   }
-  fprintf(stderr, "Unhandled form type\n");
-  return NULL;
+  fprintf(stderr,"Unhandled form type 0x%x\n", form);
+  return nullptr;
 }
 
 // If one really wanted, you could merge SkipAttribute and
@@ -780,7 +801,7 @@ const uint8_t* CompilationUnit::ProcessAttribute(
       return start + datalen + len;
     }
     case DW_FORM_strp: {
-      assert(string_buffer_ != NULL);
+      assert(string_buffer_ != nullptr);
 
       const uint64_t offset = reader_->ReadOffset(start);
       assert(string_buffer_ + offset < string_buffer_ + string_buffer_length_);
@@ -790,7 +811,7 @@ const uint8_t* CompilationUnit::ProcessAttribute(
       return start + reader_->OffsetSize();
     }
     case DW_FORM_line_strp: {
-      assert(line_string_buffer_ != NULL);
+      assert(line_string_buffer_ != nullptr);
 
       const uint64_t offset = reader_->ReadOffset(start);
       assert(line_string_buffer_ + offset <
@@ -871,7 +892,7 @@ const uint8_t* CompilationUnit::ProcessAttribute(
       return start + len;
   }
   fprintf(stderr, "Unhandled form type\n");
-  return NULL;
+  return nullptr;
 }
 
 const uint8_t* CompilationUnit::ProcessDIE(uint64_t dieoffset,
@@ -881,15 +902,17 @@ const uint8_t* CompilationUnit::ProcessDIE(uint64_t dieoffset,
   // DW_AT_str_offsets_base or DW_AT_addr_base.  If it does, that attribute must
   // be found and processed before trying to process the other attributes;
   // otherwise the string or address values will all come out incorrect.
-  if (abbrev.tag == DW_TAG_compile_unit && header_.version == 5) {
+  if ((abbrev.tag == DW_TAG_compile_unit ||
+       abbrev.tag == DW_TAG_skeleton_unit) &&
+      header_.version == 5) {
     uint64_t dieoffset_copy = dieoffset;
     const uint8_t* start_copy = start;
     for (AttributeList::const_iterator i = abbrev.attributes.begin();
-	 i != abbrev.attributes.end();
-	 i++) {
+         i != abbrev.attributes.end();
+         i++) {
       start_copy = ProcessOffsetBaseAttribute(dieoffset_copy, start_copy,
-						 i->attr_, i->form_,
-						 i->value_);
+                                              i->attr_, i->form_,
+                                              i->value_);
     }
   }
 
@@ -905,13 +928,13 @@ const uint8_t* CompilationUnit::ProcessDIE(uint64_t dieoffset,
   if (abbrev.tag == DW_TAG_compile_unit
       && is_split_dwarf_
       && dwo_id_ != skeleton_dwo_id_) {
-    return NULL;
+    return nullptr;
   }
 
   return start;
 }
 
-void CompilationUnit::ProcessDIEs() {
+bool CompilationUnit::ProcessDIEs() {
   const uint8_t* dieptr = after_header_;
   size_t len;
 
@@ -942,11 +965,19 @@ void CompilationUnit::ProcessDIEs() {
     if (abbrev_num == 0) {
       if (die_stack.size() == 0)
         // If it is padding, then we are done with the compilation unit's DIEs.
-        return;
+        return true;
       const uint64_t offset = die_stack.top();
       die_stack.pop();
       handler_->EndDIE(offset);
       continue;
+    }
+
+    // Abbrev > abbrev_.size() indicates a corruption in the dwarf file.
+    if (abbrev_num > abbrevs_->size()) {
+      fprintf(stderr, "An invalid abbrev was referenced %" PRIu64 " / %zu. "
+              "Stopped procesing following DIEs in this CU.", abbrev_num,
+              abbrevs_->size());
+      return false;
     }
 
     const Abbrev& abbrev = abbrevs_->at(static_cast<size_t>(abbrev_num));
@@ -978,6 +1009,7 @@ void CompilationUnit::ProcessDIEs() {
       handler_->EndDIE(absolute_offset);
     }
   }
+  return true;
 }
 
 // Check for a valid ELF file and return the Address size.
@@ -990,66 +1022,69 @@ inline int GetElfWidth(const ElfReader& elf) {
   return 0;
 }
 
-void CompilationUnit::ProcessSplitDwarf() {
+bool CompilationUnit::ProcessSplitDwarf(std::string& split_file,
+                                        SectionMap& sections,
+                                        ByteReader& split_byte_reader,
+                                        uint64_t& cu_offset) {
+  if (!should_process_split_dwarf_)
+    return false;
   struct stat statbuf;
+  bool found_in_dwp = false;
   if (!have_checked_for_dwp_) {
     // Look for a .dwp file in the same directory as the executable.
     have_checked_for_dwp_ = true;
     string dwp_suffix(".dwp");
-    dwp_path_ = path_ + dwp_suffix;
-    if (stat(dwp_path_.c_str(), &statbuf) != 0) {
+    std::string dwp_path = path_ + dwp_suffix;
+    if (stat(dwp_path.c_str(), &statbuf) != 0) {
       // Fall back to a split .debug file in the same directory.
       string debug_suffix(".debug");
-      dwp_path_ = path_;
+      dwp_path = path_;
       size_t found = path_.rfind(debug_suffix);
-      if (found + debug_suffix.length() == path_.length())
-        dwp_path_ = dwp_path_.replace(found, debug_suffix.length(), dwp_suffix);
+      if (found != string::npos &&
+          found + debug_suffix.length() == path_.length())
+        dwp_path = dwp_path.replace(found, debug_suffix.length(), dwp_suffix);
     }
-    if (stat(dwp_path_.c_str(), &statbuf) == 0) {
-      ElfReader* elf = new ElfReader(dwp_path_);
-      int width = GetElfWidth(*elf);
+    if (stat(dwp_path.c_str(), &statbuf) == 0) {
+      split_elf_reader_ = std::make_unique<ElfReader>(dwp_path);
+      int width = GetElfWidth(*split_elf_reader_.get());
       if (width != 0) {
-        dwp_byte_reader_.reset(new ByteReader(reader_->GetEndianness()));
-        dwp_byte_reader_->SetAddressSize(width);
-        dwp_reader_.reset(new DwpReader(*dwp_byte_reader_, elf));
+        split_byte_reader = ByteReader(reader_->GetEndianness());
+        split_byte_reader.SetAddressSize(width);
+        dwp_reader_ = std::make_unique<DwpReader>(split_byte_reader,
+                                                  split_elf_reader_.get());
         dwp_reader_->Initialize();
-      } else {
-        delete elf;
+        // If we have a .dwp file, read the debug sections for the requested CU.
+        dwp_reader_->ReadDebugSectionsForCU(dwo_id_, &sections);
+        if (!sections.empty()) {
+          SectionMap::const_iterator cu_iter =
+              GetSectionByName(sections, ".debug_info_offset");
+          SectionMap::const_iterator debug_info_iter =
+              GetSectionByName(sections, ".debug_info");
+          assert(cu_iter != sections.end());
+          assert(debug_info_iter != sections.end());
+          cu_offset = cu_iter->second.first - debug_info_iter->second.first;
+          found_in_dwp = true;
+          split_file = dwp_path;
+        }
       }
-    }
-  }
-  bool found_in_dwp = false;
-  if (dwp_reader_) {
-    // If we have a .dwp file, read the debug sections for the requested CU.
-    SectionMap sections;
-    dwp_reader_->ReadDebugSectionsForCU(dwo_id_, &sections);
-    if (!sections.empty()) {
-      found_in_dwp = true;
-      CompilationUnit dwp_comp_unit(dwp_path_, sections, 0,
-                                    dwp_byte_reader_.get(), handler_);
-      dwp_comp_unit.SetSplitDwarf(addr_buffer_, addr_buffer_length_, addr_base_,
-                                  ranges_base_, dwo_id_);
-      dwp_comp_unit.Start();
     }
   }
   if (!found_in_dwp) {
     // If no .dwp file, try to open the .dwo file.
     if (stat(dwo_name_, &statbuf) == 0) {
-      ElfReader elf(dwo_name_);
-      int width = GetElfWidth(elf);
+      split_elf_reader_ = std::make_unique<ElfReader>(dwo_name_);
+      int width = GetElfWidth(*split_elf_reader_.get());
       if (width != 0) {
-        ByteReader reader(ENDIANNESS_LITTLE);
-        reader.SetAddressSize(width);
-        SectionMap sections;
-        ReadDebugSectionsFromDwo(&elf, &sections);
-        CompilationUnit dwo_comp_unit(dwo_name_, sections, 0, &reader,
-                                      handler_);
-        dwo_comp_unit.SetSplitDwarf(addr_buffer_, addr_buffer_length_,
-                                    addr_base_, ranges_base_, dwo_id_);
-        dwo_comp_unit.Start();
+        split_byte_reader = ByteReader(ENDIANNESS_LITTLE);
+        split_byte_reader.SetAddressSize(width);
+        ReadDebugSectionsFromDwo(split_elf_reader_.get(), &sections);
+        if (!sections.empty()) {
+          split_file = dwo_name_;
+        }
       }
     }
   }
+  return !split_file.empty();
 }
 
 void CompilationUnit::ReadDebugSectionsFromDwo(ElfReader* elf_reader,
@@ -1067,7 +1102,7 @@ void CompilationUnit::ReadDebugSectionsFromDwo(ElfReader* elf_reader,
     size_t section_size;
     const char* section_data = elf_reader->GetSectionByName(dwo_name,
                                                             &section_size);
-    if (section_data != NULL)
+    if (section_data != nullptr)
       sections->insert(std::make_pair(
           base_name, std::make_pair(
              reinterpret_cast<const uint8_t*>(section_data),
@@ -1077,21 +1112,17 @@ void CompilationUnit::ReadDebugSectionsFromDwo(ElfReader* elf_reader,
 
 DwpReader::DwpReader(const ByteReader& byte_reader, ElfReader* elf_reader)
     : elf_reader_(elf_reader), byte_reader_(byte_reader),
-      cu_index_(NULL), cu_index_size_(0), string_buffer_(NULL),
+      cu_index_(nullptr), cu_index_size_(0), string_buffer_(nullptr),
       string_buffer_size_(0), version_(0), ncolumns_(0), nunits_(0),
-      nslots_(0), phash_(NULL), pindex_(NULL), shndx_pool_(NULL),
-      offset_table_(NULL), size_table_(NULL), abbrev_data_(NULL),
-      abbrev_size_(0), info_data_(NULL), info_size_(0),
-      str_offsets_data_(NULL), str_offsets_size_(0) {}
-
-DwpReader::~DwpReader() {
-  if (elf_reader_) delete elf_reader_;
-}
+      nslots_(0), phash_(nullptr), pindex_(nullptr), shndx_pool_(nullptr),
+      offset_table_(nullptr), size_table_(nullptr), abbrev_data_(nullptr),
+      abbrev_size_(0), info_data_(nullptr), info_size_(0),
+      str_offsets_data_(nullptr), str_offsets_size_(0) {}
 
 void DwpReader::Initialize() {
   cu_index_ = elf_reader_->GetSectionByName(".debug_cu_index",
                                             &cu_index_size_);
-  if (cu_index_ == NULL) {
+  if (cu_index_ == nullptr) {
     return;
   }
   // The .debug_str.dwo section is shared by all CUs in the file.
@@ -1127,6 +1158,8 @@ void DwpReader::Initialize() {
     info_data_ = elf_reader_->GetSectionByName(".debug_info.dwo", &info_size_);
     str_offsets_data_ = elf_reader_->GetSectionByName(".debug_str_offsets.dwo",
                                                       &str_offsets_size_);
+    rnglist_data_ =
+        elf_reader_->GetSectionByName(".debug_rnglists.dwo", &rnglist_size_);
     if (size_table_ >= cu_index_ + cu_index_size_) {
       version_ = 0;
     }
@@ -1227,13 +1260,24 @@ void DwpReader::ReadDebugSectionsForCU(uint64_t dwo_id,
       } else if (section_id == DW_SECT_INFO) {
         sections->insert(std::make_pair(
             ".debug_info",
-            std::make_pair(reinterpret_cast<const uint8_t*> (info_data_)
-                           + offset, size)));
+            std::make_pair(reinterpret_cast<const uint8_t*>(info_data_), 0)));
+        // .debug_info_offset will points the buffer for the CU with given
+        // dwo_id.
+        sections->insert(std::make_pair(
+            ".debug_info_offset",
+            std::make_pair(
+                reinterpret_cast<const uint8_t*>(info_data_) + offset, size)));
       } else if (section_id == DW_SECT_STR_OFFSETS) {
         sections->insert(std::make_pair(
             ".debug_str_offsets",
             std::make_pair(reinterpret_cast<const uint8_t*> (str_offsets_data_)
                            + offset, size)));
+      } else if (section_id == DW_SECT_RNGLISTS) {
+        sections->insert(std::make_pair(
+            ".debug_rnglists",
+            std::make_pair(
+                reinterpret_cast<const uint8_t*>(rnglist_data_) + offset,
+                size)));
       }
     }
     sections->insert(std::make_pair(
@@ -1294,7 +1338,7 @@ LineInfo::LineInfo(const uint8_t* buffer, uint64_t buffer_length,
   string_buffer_length_ = string_buffer_length;
   line_string_buffer_length_ = line_string_buffer_length;
 #endif
-  header_.std_opcode_lengths = NULL;
+  header_.std_opcode_lengths = nullptr;
 }
 
 uint64_t LineInfo::Start() {
@@ -1788,7 +1832,7 @@ void LineInfo::ReadLines() {
     size_t oplength;
     bool add_row = ProcessOneOpcode(reader_, handler_, header_,
                                     lineptr, &lsm, &oplength, (uintptr)-1,
-                                    NULL);
+                                    nullptr);
     if (add_row) {
       if (have_pending_line)
         handler_->AddLine(pending_address, lsm.address - pending_address,
@@ -1819,6 +1863,11 @@ bool RangeListReader::ReadRanges(enum DwarfForm form, uint64_t data) {
       return ReadDebugRngList(data);
     }
   } else if (form == DW_FORM_rnglistx) {
+    if (cu_info_->ranges_base_ == 0) {
+      // In split dwarf, there's no DW_AT_rnglists_base attribute, range_base
+      // will just be the first byte after the header.
+      cu_info_->ranges_base_ = reader_->OffsetSize() == 4? 12: 20;
+    }
     offset_array_ = cu_info_->ranges_base_;
     uint64_t index_offset = reader_->OffsetSize() * data;
     uint64_t range_list_offset =
@@ -1972,7 +2021,7 @@ class CallFrameInfo::UndefinedRule: public CallFrameInfo::Rule {
     // dynamic_cast is allowed by the Google C++ Style Guide, if the use has
     // been carefully considered; cheap RTTI-like workarounds are forbidden.
     const UndefinedRule* our_rhs = dynamic_cast<const UndefinedRule*>(&rhs);
-    return (our_rhs != NULL);
+    return (our_rhs != nullptr);
   }
   Rule* Copy() const { return new UndefinedRule(*this); }
 };
@@ -1989,7 +2038,7 @@ class CallFrameInfo::SameValueRule: public CallFrameInfo::Rule {
     // dynamic_cast is allowed by the Google C++ Style Guide, if the use has
     // been carefully considered; cheap RTTI-like workarounds are forbidden.
     const SameValueRule* our_rhs = dynamic_cast<const SameValueRule*>(&rhs);
-    return (our_rhs != NULL);
+    return (our_rhs != nullptr);
   }
   Rule* Copy() const { return new SameValueRule(*this); }
 };
@@ -2113,8 +2162,8 @@ class CallFrameInfo::ValExpressionRule: public CallFrameInfo::Rule {
 // A map from register numbers to rules.
 class CallFrameInfo::RuleMap {
  public:
-  RuleMap() : cfa_rule_(NULL) { }
-  RuleMap(const RuleMap& rhs) : cfa_rule_(NULL) { *this = rhs; }
+  RuleMap() : cfa_rule_(nullptr) { }
+  RuleMap(const RuleMap& rhs) : cfa_rule_(nullptr) { *this = rhs; }
   ~RuleMap() { Clear(); }
 
   RuleMap& operator=(const RuleMap& rhs);
@@ -2174,7 +2223,7 @@ CallFrameInfo::Rule* CallFrameInfo::RuleMap::RegisterRule(int reg) const {
   if (it != registers_.end())
     return it->second->Copy();
   else
-    return NULL;
+    return nullptr;
 }
 
 void CallFrameInfo::RuleMap::SetRegisterRule(int reg, Rule* rule) {
@@ -2255,7 +2304,7 @@ bool CallFrameInfo::RuleMap::HandleTransitionTo(
 // Remove all register rules and clear cfa_rule_.
 void CallFrameInfo::RuleMap::Clear() {
   delete cfa_rule_;
-  cfa_rule_ = NULL;
+  cfa_rule_ = nullptr;
   for (RuleByNumber::iterator it = registers_.begin();
        it != registers_.end(); it++)
     delete it->second;
@@ -2271,7 +2320,7 @@ class CallFrameInfo::State {
   State(ByteReader* reader, Handler* handler, Reporter* reporter,
         uint64_t address)
       : reader_(reader), handler_(handler), reporter_(reporter),
-        address_(address), entry_(NULL), cursor_(NULL) { }
+        address_(address), entry_(nullptr), cursor_(nullptr) { }
 
   // Interpret instructions from CIE, save the resulting rule set for
   // DW_CFA_restore instructions, and return true. On error, report
@@ -2845,7 +2894,7 @@ bool CallFrameInfo::ReadEntryPrologue(const uint8_t* cursor, Entry* entry) {
   entry->offset = cursor - buffer_;
   entry->start = cursor;
   entry->kind = kUnknown;
-  entry->end = NULL;
+  entry->end = nullptr;
 
   // Read the initial length. This sets reader_'s offset size.
   size_t length_size;
@@ -2911,7 +2960,7 @@ bool CallFrameInfo::ReadEntryPrologue(const uint8_t* cursor, Entry* entry) {
   // The fields specific to this kind of entry start here.
   entry->fields = cursor;
 
-  entry->cie = NULL;
+  entry->cie = nullptr;
 
   return true;
 }

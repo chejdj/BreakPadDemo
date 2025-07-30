@@ -31,6 +31,10 @@
 // dump_symbols.cc: implement google_breakpad::WriteSymbolFile:
 // Find all the debugging info in a file and dump it as a Breakpad symbol file.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include "common/linux/dump_symbols.h"
 
 #include <assert.h>
@@ -47,7 +51,11 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <zlib.h>
+#ifdef HAVE_LIBZSTD
+#include <zstd.h>
+#endif
 
+#include <memory>
 #include <set>
 #include <string>
 #include <utility>
@@ -96,12 +104,16 @@ using google_breakpad::PageAllocator;
 #ifndef NO_STABS_SUPPORT
 using google_breakpad::StabsToModule;
 #endif
-using google_breakpad::scoped_ptr;
 using google_breakpad::wasteful_vector;
 
 // Define AARCH64 ELF architecture if host machine does not include this define.
 #ifndef EM_AARCH64
 #define EM_AARCH64      183
+#endif
+
+// Define ZStd compression if host machine does not include this define.
+#ifndef ELFCOMPRESS_ZSTD
+#define ELFCOMPRESS_ZSTD 2
 #endif
 
 //
@@ -138,7 +150,7 @@ class MmapWrapper {
  public:
   MmapWrapper() : is_set_(false) {}
   ~MmapWrapper() {
-    if (is_set_ && base_ != NULL) {
+    if (is_set_ && base_ != nullptr) {
       assert(size_ > 0);
       munmap(base_, size_);
     }
@@ -151,7 +163,7 @@ class MmapWrapper {
   void release() {
     assert(is_set_);
     is_set_ = false;
-    base_ = NULL;
+    base_ = nullptr;
     size_ = 0;
   }
 
@@ -301,33 +313,103 @@ uint32_t GetCompressionHeader(
   return sizeof (*header);
 }
 
-std::pair<uint8_t *, uint64_t> UncompressSectionContents(
+std::pair<uint8_t *, uint64_t> UncompressZlibSectionContents(
     const uint8_t* compressed_buffer, uint64_t compressed_size, uint64_t uncompressed_size) {
-  z_stream stream;
-  memset(&stream, 0, sizeof stream);
-
-  stream.avail_in = compressed_size;
-  stream.avail_out = uncompressed_size;
-  stream.next_in = const_cast<uint8_t *>(compressed_buffer);
-
   google_breakpad::scoped_array<uint8_t> uncompressed_buffer(
     new uint8_t[uncompressed_size]);
 
-  int status = inflateInit(&stream);
-  while (stream.avail_in != 0 && status == Z_OK) {
-    stream.next_out =
-      uncompressed_buffer.get() + uncompressed_size - stream.avail_out;
+  uLongf size = static_cast<uLongf>(uncompressed_size);
 
-    if ((status = inflate(&stream, Z_FINISH)) != Z_STREAM_END) {
-      break;
-    }
+  int status = uncompress(
+    uncompressed_buffer.get(), &size, compressed_buffer, compressed_size);
 
-    status = inflateReset(&stream);
+  return status != Z_OK
+      ? std::make_pair(nullptr, 0)
+      : std::make_pair(uncompressed_buffer.release(), uncompressed_size);
+}
+
+#ifdef HAVE_LIBZSTD
+std::pair<uint8_t *, uint64_t> UncompressZstdSectionContents(
+    const uint8_t* compressed_buffer, uint64_t compressed_size,uint64_t uncompressed_size) {
+
+  google_breakpad::scoped_array<uint8_t> uncompressed_buffer(new uint8_t[uncompressed_size]);
+  size_t out_size = ZSTD_decompress(uncompressed_buffer.get(), uncompressed_size,
+    compressed_buffer, compressed_size);
+  if (ZSTD_isError(out_size)) {
+    return std::make_pair(nullptr, 0);
+  }
+  assert(out_size == uncompressed_size);
+  return std::make_pair(uncompressed_buffer.release(), uncompressed_size);
+}
+#endif
+
+std::pair<uint8_t *, uint64_t> UncompressSectionContents(
+    uint64_t compression_type, const uint8_t* compressed_buffer,
+    uint64_t compressed_size, uint64_t uncompressed_size) {
+  if (compression_type == ELFCOMPRESS_ZLIB) {
+    return UncompressZlibSectionContents(compressed_buffer, compressed_size, uncompressed_size);
   }
 
-  return inflateEnd(&stream) != Z_OK || status != Z_OK || stream.avail_out != 0
-    ? std::make_pair(nullptr, 0)
-    : std::make_pair(uncompressed_buffer.release(), uncompressed_size);
+#ifdef HAVE_LIBZSTD
+  if (compression_type == ELFCOMPRESS_ZSTD) {
+    return UncompressZstdSectionContents(compressed_buffer, compressed_size, uncompressed_size);
+  }
+#endif
+
+  return std::make_pair(nullptr, 0);
+}
+
+void StartProcessSplitDwarf(google_breakpad::CompilationUnit* reader,
+                            Module* module,
+                            google_breakpad::Endianness endianness,
+                            bool handle_inter_cu_refs,
+                            bool handle_inline) {
+  std::string split_file;
+  google_breakpad::SectionMap split_sections;
+  google_breakpad::ByteReader split_byte_reader(endianness);
+  uint64_t cu_offset = 0;
+  if (!reader->ProcessSplitDwarf(split_file, split_sections, split_byte_reader,
+                                 cu_offset))
+    return;
+  DwarfCUToModule::FileContext file_context(split_file, module,
+                                            handle_inter_cu_refs);
+  for (auto section : split_sections)
+    file_context.AddSectionToSectionMap(section.first, section.second.first,
+                                        section.second.second);
+  // Because DWP/DWO file doesn't have .debug_addr/.debug_line/.debug_line_str,
+  // its debug info will refer to .debug_addr/.debug_line in the main binary.
+  if (file_context.section_map().find(".debug_addr") ==
+      file_context.section_map().end())
+    file_context.AddSectionToSectionMap(".debug_addr", reader->GetAddrBuffer(),
+                                        reader->GetAddrBufferLen());
+  if (file_context.section_map().find(".debug_line") ==
+      file_context.section_map().end())
+    file_context.AddSectionToSectionMap(".debug_line", reader->GetLineBuffer(),
+                                        reader->GetLineBufferLen());
+  if (file_context.section_map().find(".debug_line_str") ==
+      file_context.section_map().end())
+    file_context.AddSectionToSectionMap(".debug_line_str",
+                                        reader->GetLineStrBuffer(),
+                                        reader->GetLineStrBufferLen());
+
+  DumperRangesHandler ranges_handler(&split_byte_reader);
+  DumperLineToModule line_to_module(&split_byte_reader);
+  DwarfCUToModule::WarningReporter reporter(split_file, cu_offset);
+  DwarfCUToModule root_handler(
+      &file_context, &line_to_module, &ranges_handler, &reporter, handle_inline,
+      reader->GetLowPC(), reader->GetAddrBase(), reader->HasSourceLineInfo(),
+      reader->GetSourceLineOffset());
+  google_breakpad::DIEDispatcher die_dispatcher(&root_handler);
+  google_breakpad::CompilationUnit split_reader(
+      split_file, file_context.section_map(), cu_offset, &split_byte_reader,
+      &die_dispatcher);
+  split_reader.SetSplitDwarf(reader->GetAddrBase(), reader->GetDWOID());
+  split_reader.Start();
+  // Normally, it won't happen unless we have transitive reference.
+  if (split_reader.ShouldProcessSplitDwarf()) {
+    StartProcessSplitDwarf(&split_reader, module, endianness,
+                           handle_inter_cu_refs, handle_inline);
+  }
 }
 
 template<typename ElfClass>
@@ -380,7 +462,7 @@ bool LoadDwarf(const string& dwarf_filename,
     size -= compression_header_size;
 
     std::pair<uint8_t *, uint64_t> uncompressed =
-      UncompressSectionContents(contents, size, chdr.ch_size);
+      UncompressSectionContents(chdr.ch_type, contents, size, chdr.ch_size);
 
     if (uncompressed.first != nullptr && uncompressed.second != 0) {
       file_context.AddManagedSectionToSectionMap(name, uncompressed.first, uncompressed.second);
@@ -416,7 +498,16 @@ bool LoadDwarf(const string& dwarf_filename,
                                          &byte_reader,
                                          &die_dispatcher);
     // Process the entire compilation unit; get the offset of the next.
-    offset += reader.Start();
+    uint64_t result = reader.Start();
+    if (result == 0) {
+      return false;
+    }
+    offset += result;
+    // Start to process split dwarf file.
+    if (reader.ShouldProcessSplitDwarf()) {
+      StartProcessSplitDwarf(&reader, module, endianness, handle_inter_cu_refs,
+                             handle_inline);
+    }
   }
   return true;
 }
@@ -444,6 +535,9 @@ bool DwarfCFIRegisterNames(const typename ElfClass::Ehdr* elf_header,
       return true;
     case EM_X86_64:
       *register_names = DwarfCFIToModule::RegisterNames::X86_64();
+      return true;
+    case EM_RISCV:
+      *register_names = DwarfCFIToModule::RegisterNames::RISCV();
       return true;
     default:
       return false;
@@ -495,9 +589,42 @@ bool LoadDwarfCFI(const string& dwarf_filename,
 
   google_breakpad::CallFrameInfo::Reporter dwarf_reporter(dwarf_filename,
                                                        section_name);
-  google_breakpad::CallFrameInfo parser(cfi, cfi_size,
-                                     &byte_reader, &handler, &dwarf_reporter,
-                                     eh_frame);
+  if (!IsCompressedHeader<ElfClass>(section)) {
+    google_breakpad::CallFrameInfo parser(cfi, cfi_size,
+                                          &byte_reader, &handler,
+                                          &dwarf_reporter, eh_frame);
+    parser.Start();
+    return true;
+  }
+
+  typename ElfClass::Chdr chdr;
+  uint32_t compression_header_size =
+    GetCompressionHeader<ElfClass>(chdr, cfi, cfi_size);
+
+  if (compression_header_size == 0 || chdr.ch_size == 0) {
+    fprintf(stderr, "%s: decompression failed at header\n",
+            dwarf_filename.c_str());
+    return false;
+  }
+  if (compression_header_size > cfi_size) {
+    fprintf(stderr, "%s: decompression error, compression_header too large\n",
+            dwarf_filename.c_str());
+    return false;
+  }
+
+  cfi += compression_header_size;
+  cfi_size -= compression_header_size;
+
+  std::pair<uint8_t *, uint64_t> uncompressed =
+    UncompressSectionContents(chdr.ch_type, cfi, cfi_size, chdr.ch_size);
+
+  if (uncompressed.first == nullptr || uncompressed.second == 0) {
+    fprintf(stderr, "%s: decompression failed\n", dwarf_filename.c_str());
+    return false;
+  }
+  google_breakpad::CallFrameInfo parser(uncompressed.first, uncompressed.second,
+                                        &byte_reader, &handler, &dwarf_reporter,
+                                        eh_frame);
   parser.Start();
   return true;
 }
@@ -517,7 +644,7 @@ bool LoadELF(const string& obj_file, MmapWrapper* map_wrapper,
             obj_file.c_str(), strerror(errno));
     return false;
   }
-  void* obj_base = mmap(NULL, st.st_size,
+  void* obj_base = mmap(nullptr, st.st_size,
                         PROT_READ | PROT_WRITE, MAP_PRIVATE, obj_fd, 0);
   if (obj_base == MAP_FAILED) {
     fprintf(stderr, "Failed to mmap ELF file '%s': %s\n",
@@ -699,7 +826,7 @@ class LoadSymbolsInfo {
   string debuglink_file() const {
     return debuglink_file_;
   }
-  void set_debuglink_file(string file) {
+  void set_debuglink_file(const string& file) {
     debuglink_file_ = file;
   }
 
@@ -755,6 +882,7 @@ bool LoadSymbols(const string& obj_file,
   const char* names_end = names + section_names->sh_size;
   bool found_debug_info_section = false;
   bool found_usable_info = false;
+  bool usable_info_parsed = false;
 
   if ((options.symbol_data & SYMBOLS_AND_FILES) ||
       (options.symbol_data & INLINES)) {
@@ -770,8 +898,10 @@ bool LoadSymbols(const string& obj_file,
         found_debug_info_section = true;
         found_usable_info = true;
         info->LoadedSection(".stab");
-        if (!LoadStabs<ElfClass>(elf_header, stab_section, stabstr_section,
-                                 big_endian, module)) {
+        bool result = LoadStabs<ElfClass>(elf_header, stab_section, stabstr_section,
+                                 big_endian, module);
+        usable_info_parsed = usable_info_parsed || result;
+        if (!result) {
           fprintf(stderr, "%s: \".stab\" section found, but failed to load"
                   " STABS debugging information\n", obj_file.c_str());
         }
@@ -858,9 +988,11 @@ bool LoadSymbols(const string& obj_file,
       found_debug_info_section = true;
       found_usable_info = true;
       info->LoadedSection(".debug_info");
-      if (!LoadDwarf<ElfClass>(obj_file, elf_header, big_endian,
+      bool result = LoadDwarf<ElfClass>(obj_file, elf_header, big_endian,
                                options.handle_inter_cu_refs,
-                               options.symbol_data & INLINES, module)) {
+                               options.symbol_data & INLINES, module);
+      usable_info_parsed = usable_info_parsed || result;
+      if (!result){
         fprintf(stderr, "%s: \".debug_info\" section found, but failed to load "
                 "DWARF debugging information\n", obj_file.c_str());
       }
@@ -965,7 +1097,7 @@ bool LoadSymbols(const string& obj_file,
     return false;
   }
 
-  return true;
+  return usable_info_parsed;
 }
 
 // Return the breakpad symbol file identifier for the architecture of
@@ -985,7 +1117,9 @@ const char* ElfArchitecture(const typename ElfClass::Ehdr* elf_header) {
     case EM_SPARC:      return "sparc";
     case EM_SPARCV9:    return "sparcv9";
     case EM_X86_64:     return "x86_64";
-    default: return NULL;
+    case EM_RISCV:      return "riscv";
+    case EM_NDS32:      return "nds32";
+    default: return nullptr;
   }
 }
 
@@ -1024,7 +1158,9 @@ template<typename ElfClass>
 bool InitModuleForElfClass(const typename ElfClass::Ehdr* elf_header,
                            const string& obj_filename,
                            const string& obj_os,
-                           scoped_ptr<Module>& module) {
+                           const string& module_id,
+                           std::unique_ptr<Module>& module,
+                           bool enable_multiple_field) {
   PageAllocator allocator;
   wasteful_vector<uint8_t> identifier(&allocator, kDefaultBuildIdSize);
   if (!FileID::ElfFileIdentifierFromMappedFile(elf_header, identifier)) {
@@ -1046,14 +1182,19 @@ bool InitModuleForElfClass(const typename ElfClass::Ehdr* elf_header,
                          ? name_buf
                          : google_breakpad::BaseName(obj_filename);
 
-  // Add an extra "0" at the end.  PDB files on Windows have an 'age'
-  // number appended to the end of the file identifier; this isn't
-  // really used or necessary on other platforms, but be consistent.
-  string id = FileID::ConvertIdentifierToUUIDString(identifier) + "0";
+  // Use the provided module_id
+  string id = module_id.empty()
+    // Add an extra "0" at the end.  PDB files on Windows have an 'age'
+    // number appended to the end of the file identifier; this isn't
+    // really used or necessary on other platforms, but be consistent.
+    ? FileID::ConvertIdentifierToUUIDString(identifier) + "0"
+    : module_id;
+
   // This is just the raw Build ID in hex.
   string code_id = FileID::ConvertIdentifierToString(identifier);
 
-  module.reset(new Module(name, obj_os, architecture, id, code_id));
+  module.reset(new Module(name, obj_os, architecture, id, code_id,
+                          enable_multiple_field));
 
   return true;
 }
@@ -1062,16 +1203,17 @@ template<typename ElfClass>
 bool ReadSymbolDataElfClass(const typename ElfClass::Ehdr* elf_header,
                             const string& obj_filename,
                             const string& obj_os,
+                            const string& module_id,
                             const std::vector<string>& debug_dirs,
                             const DumpOptions& options,
                             Module** out_module) {
   typedef typename ElfClass::Ehdr Ehdr;
 
-  *out_module = NULL;
+  *out_module = nullptr;
 
-  scoped_ptr<Module> module;
-  if (!InitModuleForElfClass<ElfClass>(elf_header, obj_filename, obj_os,
-                                       module)) {
+  std::unique_ptr<Module> module;
+  if (!InitModuleForElfClass<ElfClass>(elf_header, obj_filename, obj_os, module_id,
+                                      module, options.enable_multiple_field)) {
     return false;
   }
 
@@ -1091,7 +1233,7 @@ bool ReadSymbolDataElfClass(const typename ElfClass::Ehdr* elf_header,
     // Load debuglink ELF file.
     fprintf(stderr, "Found debugging info in %s\n", debuglink_file.c_str());
     MmapWrapper debug_map_wrapper;
-    Ehdr* debug_elf_header = NULL;
+    Ehdr* debug_elf_header = nullptr;
     if (!LoadELF(debuglink_file, &debug_map_wrapper,
                  reinterpret_cast<void**>(&debug_elf_header)) ||
         !SanitizeDebugFile<ElfClass>(debug_elf_header, debuglink_file,
@@ -1120,6 +1262,7 @@ namespace google_breakpad {
 bool ReadSymbolDataInternal(const uint8_t* obj_file,
                             const string& obj_filename,
                             const string& obj_os,
+                            const string& module_id,
                             const std::vector<string>& debug_dirs,
                             const DumpOptions& options,
                             Module** module) {
@@ -1132,12 +1275,12 @@ bool ReadSymbolDataInternal(const uint8_t* obj_file,
   if (elfclass == ELFCLASS32) {
     return ReadSymbolDataElfClass<ElfClass32>(
         reinterpret_cast<const Elf32_Ehdr*>(obj_file), obj_filename, obj_os,
-        debug_dirs, options, module);
+        module_id, debug_dirs, options, module);
   }
   if (elfclass == ELFCLASS64) {
     return ReadSymbolDataElfClass<ElfClass64>(
         reinterpret_cast<const Elf64_Ehdr*>(obj_file), obj_filename, obj_os,
-        debug_dirs, options, module);
+        module_id, debug_dirs, options, module);
   }
 
   return false;
@@ -1146,15 +1289,16 @@ bool ReadSymbolDataInternal(const uint8_t* obj_file,
 bool WriteSymbolFile(const string& load_path,
                      const string& obj_file,
                      const string& obj_os,
+                     const string& module_id,
                      const std::vector<string>& debug_dirs,
                      const DumpOptions& options,
                      std::ostream& sym_stream) {
   Module* module;
-  if (!ReadSymbolData(load_path, obj_file, obj_os, debug_dirs, options,
+  if (!ReadSymbolData(load_path, obj_file, obj_os, module_id, debug_dirs, options,
                       &module))
     return false;
 
-  bool result = module->Write(sym_stream, options.symbol_data);
+  bool result = module->Write(sym_stream, options.symbol_data, options.preserve_load_address);
   delete module;
   return result;
 }
@@ -1165,9 +1309,10 @@ bool WriteSymbolFile(const string& load_path,
 bool WriteSymbolFileHeader(const string& load_path,
                            const string& obj_file,
                            const string& obj_os,
+                           const string& module_id,
                            std::ostream& sym_stream) {
   MmapWrapper map_wrapper;
-  void* elf_header = NULL;
+  void* elf_header = nullptr;
   if (!LoadELF(load_path, &map_wrapper, &elf_header)) {
     fprintf(stderr, "Could not load ELF file: %s\n", obj_file.c_str());
     return false;
@@ -1179,18 +1324,18 @@ bool WriteSymbolFileHeader(const string& load_path,
   }
 
   int elfclass = ElfClass(elf_header);
-  scoped_ptr<Module> module;
+  std::unique_ptr<Module> module;
   if (elfclass == ELFCLASS32) {
     if (!InitModuleForElfClass<ElfClass32>(
         reinterpret_cast<const Elf32_Ehdr*>(elf_header), obj_file, obj_os,
-        module)) {
+        module_id, module, /*enable_multiple_field=*/false)) {
       fprintf(stderr, "Failed to load ELF module: %s\n", obj_file.c_str());
       return false;
     }
   } else if (elfclass == ELFCLASS64) {
     if (!InitModuleForElfClass<ElfClass64>(
         reinterpret_cast<const Elf64_Ehdr*>(elf_header), obj_file, obj_os,
-        module)) {
+        module_id, module, /*enable_multiple_field=*/false)) {
       fprintf(stderr, "Failed to load ELF module: %s\n", obj_file.c_str());
       return false;
     }
@@ -1205,16 +1350,17 @@ bool WriteSymbolFileHeader(const string& load_path,
 bool ReadSymbolData(const string& load_path,
                     const string& obj_file,
                     const string& obj_os,
+                    const string& module_id,
                     const std::vector<string>& debug_dirs,
                     const DumpOptions& options,
                     Module** module) {
   MmapWrapper map_wrapper;
-  void* elf_header = NULL;
+  void* elf_header = nullptr;
   if (!LoadELF(load_path, &map_wrapper, &elf_header))
     return false;
 
   return ReadSymbolDataInternal(reinterpret_cast<uint8_t*>(elf_header),
-                                obj_file, obj_os, debug_dirs, options, module);
+                                obj_file, obj_os, module_id, debug_dirs, options, module);
 }
 
 }  // namespace google_breakpad

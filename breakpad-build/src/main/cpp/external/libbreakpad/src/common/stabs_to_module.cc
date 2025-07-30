@@ -30,12 +30,18 @@
 
 // dump_stabs.cc --- implement the StabsToModule class.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include <assert.h>
 #include <cxxabi.h>
 #include <stdarg.h>
 #include <stdio.h>
 
 #include <algorithm>
+#include <memory>
+#include <utility>
 
 #include "common/stabs_to_module.h"
 #include "common/using_std_string.h"
@@ -46,8 +52,9 @@ namespace google_breakpad {
 // Older GCC may not support it.
 static string Demangle(const string& mangled) {
   int status = 0;
-  char *demangled = abi::__cxa_demangle(mangled.c_str(), NULL, NULL, &status);
-  if (status == 0 && demangled != NULL) {
+  char *demangled = abi::__cxa_demangle(
+      mangled.c_str(), nullptr, nullptr, &status);
+  if (status == 0 && demangled != nullptr) {
     string str(demangled);
     free(demangled);
     return str;
@@ -79,8 +86,8 @@ bool StabsToModule::EndCompilationUnit(uint64_t address) {
   assert(in_compilation_unit_);
   in_compilation_unit_ = false;
   comp_unit_base_address_ = 0;
-  current_source_file_ = NULL;
-  current_source_file_name_ = NULL;
+  current_source_file_ = nullptr;
+  current_source_file_name_ = nullptr;
   if (address)
     boundaries_.push_back(static_cast<Module::Address>(address));
   return true;
@@ -109,7 +116,7 @@ bool StabsToModule::EndFunction(uint64_t address) {
     functions_.push_back(current_function_);
   else
     delete current_function_;
-  current_function_ = NULL;
+  current_function_ = nullptr;
   if (address)
     boundaries_.push_back(static_cast<Module::Address>(address));
   return true;
@@ -132,7 +139,7 @@ bool StabsToModule::Line(uint64_t address, const char *name, int number) {
 }
 
 bool StabsToModule::Extern(const string& name, uint64_t address) {
-  Module::Extern *ext = new Module::Extern(address);
+  auto ext = std::make_unique<Module::Extern>(address);
   // Older libstdc++ demangle implementations can crash on unexpected
   // input, so be careful about what gets passed in.
   if (name.compare(0, 3, "__Z") == 0) {
@@ -142,7 +149,7 @@ bool StabsToModule::Extern(const string& name, uint64_t address) {
   } else {
     ext->name = name;
   }
-  module_->AddExtern(ext);
+  module_->AddExtern(std::move(ext));
   return true;
 }
 

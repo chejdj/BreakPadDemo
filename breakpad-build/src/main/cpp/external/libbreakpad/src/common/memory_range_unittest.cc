@@ -28,6 +28,10 @@
 
 // memory_range_unittest.cc: Unit tests for google_breakpad::MemoryRange.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include "breakpad_googletest_includes.h"
 #include "common/memory_range.h"
 
@@ -80,11 +84,11 @@ const struct {
   { 0, 4, 9, kBufferPointer + 36 },
   { kBufferSize - 1, 1, 0, kBufferPointer + kBufferSize - 1 },
   // Invalid array elemenets
-  { 0, 1, kBufferSize, NULL },
-  { 0, 4, 10, NULL },
-  { kBufferSize - 1, 1, 1, NULL },
-  { kBufferSize - 1, 2, 0, NULL },
-  { kBufferSize, 1, 0, NULL },
+  { 0, 1, kBufferSize, nullptr },
+  { 0, 4, 10, nullptr },
+  { kBufferSize - 1, 1, 1, nullptr },
+  { kBufferSize - 1, 2, 0, nullptr },
+  { kBufferSize, 1, 0, nullptr },
 };
 const size_t kNumElements = sizeof(kElements) / sizeof(kElements[0]);
 
@@ -92,7 +96,7 @@ const size_t kNumElements = sizeof(kElements) / sizeof(kElements[0]);
 
 TEST(MemoryRangeTest, DefaultConstructor) {
   MemoryRange range;
-  EXPECT_EQ(NULL, range.data());
+  EXPECT_EQ(nullptr, range.data());
   EXPECT_EQ(0U, range.length());
 }
 
@@ -105,7 +109,7 @@ TEST(MemoryRangeTest, ConstructorWithDataAndLength) {
 TEST(MemoryRangeTest, Reset) {
   MemoryRange range;
   range.Reset();
-  EXPECT_EQ(NULL, range.data());
+  EXPECT_EQ(nullptr, range.data());
   EXPECT_EQ(0U, range.length());
 
   range.Set(kBuffer, kBufferSize);
@@ -113,7 +117,7 @@ TEST(MemoryRangeTest, Reset) {
   EXPECT_EQ(kBufferSize, range.length());
 
   range.Reset();
-  EXPECT_EQ(NULL, range.data());
+  EXPECT_EQ(nullptr, range.data());
   EXPECT_EQ(0U, range.length());
 }
 
@@ -123,15 +127,15 @@ TEST(MemoryRangeTest, Set) {
   EXPECT_EQ(kBufferPointer, range.data());
   EXPECT_EQ(kBufferSize, range.length());
 
-  range.Set(NULL, 0);
-  EXPECT_EQ(NULL, range.data());
+  range.Set(nullptr, 0);
+  EXPECT_EQ(nullptr, range.data());
   EXPECT_EQ(0U, range.length());
 }
 
 TEST(MemoryRangeTest, SubrangeOfEmptyMemoryRange) {
   MemoryRange range;
   MemoryRange subrange = range.Subrange(0, 10);
-  EXPECT_EQ(NULL, subrange.data());
+  EXPECT_EQ(nullptr, subrange.data());
   EXPECT_EQ(0U, subrange.length());
 }
 
@@ -153,8 +157,8 @@ TEST(MemoryRangeTest, SubrangeAndGetData) {
       EXPECT_EQ(sub_length, subrange.length());
     } else {
       EXPECT_FALSE(range.Covers(sub_offset, sub_length));
-      EXPECT_EQ(NULL, range.GetData(sub_offset, sub_length));
-      EXPECT_EQ(NULL, subrange.data());
+      EXPECT_EQ(nullptr, range.GetData(sub_offset, sub_length));
+      EXPECT_EQ(nullptr, subrange.data());
       EXPECT_EQ(0U, subrange.length());
     }
   }

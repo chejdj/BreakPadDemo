@@ -31,6 +31,10 @@
 // language.cc: Subclasses and singletons for google_breakpad::Language.
 // See language.h for details.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include "common/language.h"
 
 #include <stdlib.h>
@@ -88,7 +92,7 @@ class CPPLanguage: public Language {
 
     int status;
     char* demangled_c =
-        abi::__cxa_demangle(mangled.c_str(), NULL, NULL, &status);
+        abi::__cxa_demangle(mangled.c_str(), nullptr, nullptr, &status);
 
     DemangleResult result;
     if (status == 0) {

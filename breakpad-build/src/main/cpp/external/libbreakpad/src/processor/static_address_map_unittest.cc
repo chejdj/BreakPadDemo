@@ -30,9 +30,16 @@
 //
 // Author: Siyang Xie (lambxsy@google.com)
 
-#include <climits>
-#include <cstdlib>
-#include <ctime>
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
+#include "processor/static_address_map-inl.h"
+
+#include <limits.h>
+#include <stdlib.h>
+#include <time.h>
+
 #include <string>
 #include <iostream>
 #include <sstream>
@@ -40,7 +47,6 @@
 #include "breakpad_googletest_includes.h"
 #include "common/using_std_string.h"
 #include "processor/address_map-inl.h"
-#include "processor/static_address_map-inl.h"
 #include "processor/simple_serializer-inl.h"
 #include "map_serializers-inl.h"
 
@@ -65,7 +71,7 @@ class TestStaticAddressMap : public ::testing::Test {
       testdata[2][i] = tempdata[i];
 
     // Test data set3:
-    srand(time(NULL));
+    srand(time(nullptr));
     for (int i = 0; i < testsize[3]; ++i)
       testdata[3][i] = rand();
 
@@ -77,7 +83,7 @@ class TestStaticAddressMap : public ::testing::Test {
         sstream << "test " << testdata[testcase][data_item];
         addr_map[testcase].Store(testdata[testcase][data_item], sstream.str());
       }
-      map_data[testcase] = serializer.Serialize(addr_map[testcase], NULL);
+      map_data[testcase] = serializer.Serialize(addr_map[testcase], nullptr);
       test_map[testcase] = TestMap(map_data[testcase]);
     }
   }
@@ -94,7 +100,7 @@ class TestStaticAddressMap : public ::testing::Test {
     int address_test;
     string entry;
     string entry_test;
-    const char* entry_cstring = NULL;
+    const char* entry_cstring = nullptr;
     bool found;
     bool found_test;
 
@@ -120,7 +126,7 @@ class TestStaticAddressMap : public ::testing::Test {
 
     srand(time(0));
     for (int data_item = 0; data_item < testsize[testcase]; ++data_item) {
-      // Retrive (aka, search) for target address and compare results from
+      // Retrieve (aka, search) for target address and compare results from
       // AddressMap and StaticAddressMap.
 
       // First, assign the search target to be one of original testdata that is

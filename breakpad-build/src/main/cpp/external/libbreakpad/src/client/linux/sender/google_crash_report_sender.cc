@@ -26,6 +26,10 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include "common/linux/google_crashdump_uploader.h"
 #include <string>
 #include <iostream>
@@ -100,5 +104,5 @@ int main(int argc, char* argv[]) {
                                              FLAGS_crash_server,
                                              FLAGS_proxy_host,
                                              FLAGS_proxy_userpasswd);
-  g.Upload(NULL, NULL, NULL);
+  g.Upload(nullptr, nullptr, nullptr);
 }

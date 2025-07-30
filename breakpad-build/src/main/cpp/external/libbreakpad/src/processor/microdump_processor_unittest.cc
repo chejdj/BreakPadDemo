@@ -28,6 +28,12 @@
 
 // Unit test for MicrodumpProcessor.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
+#include <assert.h>
+
 #include <fstream>
 #include <iostream>
 #include <string>

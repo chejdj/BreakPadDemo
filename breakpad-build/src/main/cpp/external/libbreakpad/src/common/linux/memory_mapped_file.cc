@@ -29,6 +29,10 @@
 // memory_mapped_file.cc: Implement google_breakpad::MemoryMappedFile.
 // See memory_mapped_file.h for details.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include "common/linux/memory_mapped_file.h"
 
 #include <fcntl.h>
@@ -57,8 +61,11 @@ MemoryMappedFile::~MemoryMappedFile() {
 
 bool MemoryMappedFile::Map(const char* path, size_t offset) {
   Unmap();
-
-  int fd = sys_open(path, O_RDONLY, 0);
+  // Based on https://pubs.opengroup.org/onlinepubs/7908799/xsh/open.html
+  // If O_NONBLOCK is set: The open() function will return without blocking
+  // for the device to be ready or available. Setting this value will provent
+  // hanging if file is not avilable.
+  int fd = sys_open(path, O_RDONLY | O_NONBLOCK, 0);
   if (fd == -1) {
     return false;
   }
@@ -88,7 +95,8 @@ bool MemoryMappedFile::Map(const char* path, size_t offset) {
   }
 
   size_t content_len = file_len - offset;
-  void* data = sys_mmap(NULL, content_len, PROT_READ, MAP_PRIVATE, fd, offset);
+  void* data = sys_mmap(nullptr, content_len, PROT_READ, MAP_PRIVATE, fd,
+                        offset);
   sys_close(fd);
   if (data == MAP_FAILED) {
     return false;
@@ -101,7 +109,7 @@ bool MemoryMappedFile::Map(const char* path, size_t offset) {
 void MemoryMappedFile::Unmap() {
   if (content_.data()) {
     sys_munmap(const_cast<uint8_t*>(content_.data()), content_.length());
-    content_.Set(NULL, 0);
+    content_.Set(nullptr, 0);
   }
 }
 

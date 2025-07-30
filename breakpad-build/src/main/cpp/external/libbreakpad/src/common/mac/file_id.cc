@@ -32,14 +32,19 @@
 //
 // Author: Dan Waylonis
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include "common/mac/file_id.h"
 
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 
+#include <memory>
+
 #include "common/mac/macho_id.h"
-#include "common/scoped_ptr.h"
 
 using MacFileUtilities::MachoID;
 
@@ -57,7 +62,7 @@ FileID::FileID(void* memory, size_t size)
 bool FileID::MachoIdentifier(cpu_type_t cpu_type,
                              cpu_subtype_t cpu_subtype,
                              unsigned char identifier[16]) {
-  scoped_ptr<MachoID> macho;
+  std::unique_ptr<MachoID> macho;
   if (memory_) {
     macho.reset(new MachoID(memory_, size_));
   } else {

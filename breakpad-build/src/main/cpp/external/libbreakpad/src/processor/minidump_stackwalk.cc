@@ -31,16 +31,20 @@
 //
 // Author: Mark Mentovai
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 
 #include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "common/path_helper.h"
-#include "common/scoped_ptr.h"
 #include "common/using_std_string.h"
 #include "google_breakpad/processor/basic_source_line_resolver.h"
 #include "google_breakpad/processor/minidump.h"
@@ -57,6 +61,7 @@ struct Options {
   bool machine_readable;
   bool output_stack_contents;
   bool output_requesting_thread_only;
+  bool brief;
 
   string minidump_file;
   std::vector<string> symbol_paths;
@@ -69,7 +74,6 @@ using google_breakpad::MinidumpThreadList;
 using google_breakpad::MinidumpProcessor;
 using google_breakpad::ProcessState;
 using google_breakpad::SimpleSymbolSupplier;
-using google_breakpad::scoped_ptr;
 
 // Processes |options.minidump_file| using MinidumpProcessor.
 // |options.symbol_path|, if non-empty, is the base directory of a
@@ -83,7 +87,7 @@ using google_breakpad::scoped_ptr;
 // call stacks for each thread contained in the minidump.  All information
 // is printed to stdout.
 bool PrintMinidumpProcess(const Options& options) {
-  scoped_ptr<SimpleSymbolSupplier> symbol_supplier;
+  std::unique_ptr<SimpleSymbolSupplier> symbol_supplier;
   if (!options.symbol_paths.empty()) {
     // TODO(mmentovai): check existence of symbol_path if specified?
     symbol_supplier.reset(new SimpleSymbolSupplier(options.symbol_paths));
@@ -110,6 +114,8 @@ bool PrintMinidumpProcess(const Options& options) {
 
   if (options.machine_readable) {
     PrintProcessStateMachineReadable(process_state);
+  } else if (options.brief) {
+    PrintRequestingThreadBrief(process_state);
   } else {
     PrintProcessState(process_state, options.output_stack_contents,
                       options.output_requesting_thread_only, &resolver);
@@ -130,7 +136,8 @@ static void Usage(int argc, const char *argv[], bool error) {
           "\n"
           "  -m         Output in machine-readable format\n"
           "  -s         Output stack contents\n"
-          "  -c         Output thread that causes crash or dump only\n",
+          "  -c         Output thread that causes crash or dump only\n"
+          "  -b         Brief of the thread that causes crash or dump\n",
           google_breakpad::BaseName(argv[0]).c_str());
 }
 
@@ -140,14 +147,18 @@ static void SetupOptions(int argc, const char *argv[], Options* options) {
   options->machine_readable = false;
   options->output_stack_contents = false;
   options->output_requesting_thread_only = false;
+  options->brief = false;
 
-  while ((ch = getopt(argc, (char * const*)argv, "chms")) != -1) {
+  while ((ch = getopt(argc, (char* const*)argv, "bchms")) != -1) {
     switch (ch) {
       case 'h':
         Usage(argc, argv, false);
         exit(0);
         break;
 
+      case 'b':
+        options->brief = true;
+        break;
       case 'c':
         options->output_requesting_thread_only = true;
         break;

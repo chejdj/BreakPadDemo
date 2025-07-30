@@ -30,11 +30,19 @@
 
 // Original author: Ted Mielczarek <ted.mielczarek@gmail.com>
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include "common/linux/elf_symbols_to_module.h"
 
+#include <assert.h>
 #include <cxxabi.h>
 #include <elf.h>
 #include <string.h>
+
+#include <memory>
+#include <utility>
 
 #include "common/byte_cursor.h"
 #include "common/module.h"
@@ -156,19 +164,19 @@ bool ELFSymbolsToModule(const uint8_t* symtab_section,
   while(!iterator->at_end) {
     if (ELF32_ST_TYPE(iterator->info) == STT_FUNC &&
         iterator->shndx != SHN_UNDEF) {
-      Module::Extern* ext = new Module::Extern(iterator->value);
+      auto ext = std::make_unique<Module::Extern>(iterator->value);
       ext->name = SymbolString(iterator->name_offset, strings);
 #if !defined(__ANDROID__)  // Android NDK doesn't provide abi::__cxa_demangle.
       int status = 0;
       char* demangled =
-          abi::__cxa_demangle(ext->name.c_str(), NULL, NULL, &status);
+          abi::__cxa_demangle(ext->name.c_str(), nullptr, nullptr, &status);
       if (demangled) {
         if (status == 0)
           ext->name = demangled;
         free(demangled);
       }
 #endif
-      module->AddExtern(ext);
+      module->AddExtern(std::move(ext));
     }
     ++iterator;
   }

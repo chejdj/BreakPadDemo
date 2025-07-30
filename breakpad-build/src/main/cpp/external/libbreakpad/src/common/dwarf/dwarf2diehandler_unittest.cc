@@ -32,6 +32,10 @@
 
 // dwarf2diehander_unittest.cc: Unit tests for google_breakpad::DIEDispatcher.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include <stdint.h>
 
 #include <string>
@@ -339,7 +343,7 @@ TEST(Dwarf2DIEHandler, FindAndSkipChildren) {
       EXPECT_CALL(mock_root_handler,
                   FindChildHandler(0x97412be24875de9dLL,
                                    (DwarfTag) 0x505a068b))
-        .WillOnce(Return((DIEHandler*) NULL));
+        .WillOnce(Return((DIEHandler*) nullptr));
 
       // Third child DIE.
       EXPECT_CALL(mock_root_handler,

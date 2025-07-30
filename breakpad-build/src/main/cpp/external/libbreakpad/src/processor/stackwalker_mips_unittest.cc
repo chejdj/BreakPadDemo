@@ -30,6 +30,10 @@
 
 // stackwalker_mips_unittest.cc: Unit tests for StackwalkerMIPS class.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include <string.h>
 #include <string>
 #include <vector>
@@ -152,7 +156,7 @@ TEST_F(SanityCheck, NoResolver) {
   raw_context.epc = 0x00400020;
   raw_context.iregs[MD_CONTEXT_MIPS_REG_SP] = 0x80000000;
 
-  StackFrameSymbolizer frame_symbolizer(NULL, NULL);
+  StackFrameSymbolizer frame_symbolizer(nullptr, nullptr);
   StackwalkerMIPS walker(&system_info, &raw_context, &stack_region, &modules,
                         &frame_symbolizer);
   // This should succeed, even without a resolver or supplier.
@@ -206,7 +210,7 @@ TEST_F(GetContextFrame, NoStackMemory) {
   raw_context.iregs[MD_CONTEXT_MIPS_REG_SP] = 0x80000000;
 
   StackFrameSymbolizer frame_symbolizer(&supplier, &resolver);
-  StackwalkerMIPS walker(&system_info, &raw_context, NULL, &modules,
+  StackwalkerMIPS walker(&system_info, &raw_context, nullptr, &modules,
                          &frame_symbolizer);
   vector<const CodeModule*> modules_without_symbols;
   vector<const CodeModule*> modules_with_corrupt_symbols;

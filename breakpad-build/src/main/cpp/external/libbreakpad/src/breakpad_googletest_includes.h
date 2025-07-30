@@ -29,8 +29,8 @@
 #ifndef BREAKPAD_GOOGLETEST_INCLUDES_H__
 #define BREAKPAD_GOOGLETEST_INCLUDES_H__
 
-#include "testing/googletest//include/gtest/gtest.h"
-#include "testing/googlemock/include//gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "gmock/gmock.h"
 
 // If AddressSanitizer is used, NULL pointer dereferences generate SIGILL
 // (illegal instruction) instead of SIGSEGV (segmentation fault).  Also,

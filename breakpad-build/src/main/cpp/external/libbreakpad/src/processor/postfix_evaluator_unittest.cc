@@ -30,6 +30,10 @@
 //
 // Author: Mark Mentovai
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include <assert.h>
 #include <stdio.h>
 
@@ -221,7 +225,7 @@ static bool RunTests() {
 
   FakeMemoryRegion fake_memory;
   PostfixEvaluator<unsigned int> postfix_evaluator =
-      PostfixEvaluator<unsigned int>(NULL, &fake_memory);
+      PostfixEvaluator<unsigned int>(nullptr, &fake_memory);
 
   for (unsigned int evaluate_test_set_index = 0;
        evaluate_test_set_index < evaluate_test_set_count;

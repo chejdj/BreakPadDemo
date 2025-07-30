@@ -30,9 +30,8 @@
 #define COMMON_SIMPLE_STRING_DICTIONARY_H_
 
 #include <assert.h>
+#include <stddef.h>
 #include <string.h>
-
-#include "common/basictypes.h"
 
 namespace google_breakpad {
 
@@ -80,6 +79,8 @@ class NonAllocatingMap {
         : map_(map),
           current_(0) {
     }
+    Iterator(const Iterator&) = delete;
+    void operator=(const Iterator&) = delete;
 
     // Returns the next entry in the map, or NULL if at the end of the
     // collection.
@@ -90,14 +91,12 @@ class NonAllocatingMap {
           return entry;
         }
       }
-      return NULL;
+      return nullptr;
     }
 
    private:
     const NonAllocatingMap& map_;
     size_t current_;
-
-    DISALLOW_COPY_AND_ASSIGN(Iterator);
   };
 
   NonAllocatingMap() : entries_() {
@@ -144,11 +143,11 @@ class NonAllocatingMap {
   const char* GetValueForKey(const char* key) const {
     assert(key);
     if (!key)
-      return NULL;
+      return nullptr;
 
     size_t index = GetEntryIndexForKey(key);
     if (index == num_entries)
-      return NULL;
+      return nullptr;
 
     return entries_[index].value;
   }

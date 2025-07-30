@@ -28,10 +28,15 @@
 
 // Author: Alfred Peng
 
-#include <string>
-#include <cstdio>
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
 
 #include "common/solaris/dump_symbols.h"
+
+#include <stdio.h>
+
+#include <string>
 
 using namespace google_breakpad;
 

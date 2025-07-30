@@ -30,6 +30,10 @@
 
 // dump_stabs_unittest.cc: Unit tests for StabsToModule.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include <vector>
 
 #include "breakpad_googletest_includes.h"
@@ -55,7 +59,7 @@ TEST(StabsToModule, SimpleCU) {
 
   // Now check to see what has been added to the Module.
   Module::File *file = m.FindExistingFile("source-file-name");
-  ASSERT_TRUE(file != NULL);
+  ASSERT_TRUE(file != nullptr);
 
   vector<Module::Function*> functions;
   m.GetFunctions(&functions, functions.end());
@@ -121,7 +125,7 @@ TEST(StabsToModule, DuplicateFunctionNames) {
 
   // Now check to see what has been added to the Module.
   Module::File *file = m.FindExistingFile("compilation-unit");
-  ASSERT_TRUE(file != NULL);
+  ASSERT_TRUE(file != nullptr);
 
   vector<Module::Function*> functions;
   m.GetFunctions(&functions, functions.end());
@@ -154,9 +158,9 @@ TEST(InferSizes, LineSize) {
 
   // Now check to see what has been added to the Module.
   Module::File *file1 = m.FindExistingFile("source-file-name-1");
-  ASSERT_TRUE(file1 != NULL);
+  ASSERT_TRUE(file1 != nullptr);
   Module::File *file2 = m.FindExistingFile("source-file-name-2");
-  ASSERT_TRUE(file2 != NULL);
+  ASSERT_TRUE(file2 != nullptr);
 
   vector<Module::Function*> functions;
   m.GetFunctions(&functions, functions.end());
@@ -201,7 +205,7 @@ TEST(FunctionNames, Mangled) {
 
   // Now check to see what has been added to the Module.
   Module::File *file = m.FindExistingFile("compilation-unit");
-  ASSERT_TRUE(file != NULL);
+  ASSERT_TRUE(file != nullptr);
 
   vector<Module::Function*> functions;
   m.GetFunctions(&functions, functions.end());

@@ -28,6 +28,10 @@
 
 // Unit test for crash dump uploader.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include <string>
 
 #include "common/linux/google_crashdump_uploader.h"
@@ -63,7 +67,7 @@ TEST_F(GoogleCrashdumpUploaderTest, InitFailsCausesUploadFailure) {
   GoogleCrashdumpUploader uploader("foobar", "1.0", "AAA-BBB", "", "",
                                    "test@test.com", "none", "/tmp/foo.dmp",
                                    "http://foo.com", "", "", std::move(m));
-  ASSERT_FALSE(uploader.Upload(NULL, NULL, NULL));
+  ASSERT_FALSE(uploader.Upload(nullptr, nullptr, nullptr));
 }
 
 TEST_F(GoogleCrashdumpUploaderTest, TestSendRequestHappensWithValidParameters) {
@@ -82,7 +86,7 @@ TEST_F(GoogleCrashdumpUploaderTest, TestSendRequestHappensWithValidParameters) {
   GoogleCrashdumpUploader uploader("foobar", "1.0", "AAA-BBB", "", "",
                                    "test@test.com", "none", tempfn,
                                    "http://foo.com", "", "", std::move(m));
-  ASSERT_TRUE(uploader.Upload(NULL, NULL, NULL));
+  ASSERT_TRUE(uploader.Upload(nullptr, nullptr, nullptr));
 }
 
 
@@ -93,7 +97,7 @@ TEST_F(GoogleCrashdumpUploaderTest, InvalidPathname) {
   GoogleCrashdumpUploader uploader("foobar", "1.0", "AAA-BBB", "", "",
                                    "test@test.com", "none", "/tmp/foo.dmp",
                                    "http://foo.com", "", "", std::move(m));
-  ASSERT_FALSE(uploader.Upload(NULL, NULL, NULL));
+  ASSERT_FALSE(uploader.Upload(nullptr, nullptr, nullptr));
 }
 
 TEST_F(GoogleCrashdumpUploaderTest, TestRequiredParametersMustBePresent) {
@@ -109,7 +113,7 @@ TEST_F(GoogleCrashdumpUploaderTest, TestRequiredParametersMustBePresent) {
                                    "http://foo.com",
                                    "",
                                    "");
-  ASSERT_FALSE(uploader.Upload(NULL, NULL, NULL));
+  ASSERT_FALSE(uploader.Upload(nullptr, nullptr, nullptr));
 
   // Test with empty product version.
   GoogleCrashdumpUploader uploader1("product",
@@ -124,7 +128,7 @@ TEST_F(GoogleCrashdumpUploaderTest, TestRequiredParametersMustBePresent) {
                                     "",
                                     "");
 
-  ASSERT_FALSE(uploader1.Upload(NULL, NULL, NULL));
+  ASSERT_FALSE(uploader1.Upload(nullptr, nullptr, nullptr));
 
   // Test with empty client GUID.
   GoogleCrashdumpUploader uploader2("product",
@@ -138,6 +142,6 @@ TEST_F(GoogleCrashdumpUploaderTest, TestRequiredParametersMustBePresent) {
                                     "",
                                     "",
                                     "");
-  ASSERT_FALSE(uploader2.Upload(NULL, NULL, NULL));
+  ASSERT_FALSE(uploader2.Upload(nullptr, nullptr, nullptr));
 }
 }

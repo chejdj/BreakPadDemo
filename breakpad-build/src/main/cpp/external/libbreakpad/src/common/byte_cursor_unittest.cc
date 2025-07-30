@@ -31,6 +31,10 @@
 // byte_cursor_unittest.cc: Unit tests for google_breakpad::ByteBuffer
 // and google_breakpad::ByteCursor.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include <string>
 
 #include <string.h>
@@ -729,7 +733,7 @@ TEST(Strings, PointTo) {
   EXPECT_EQ(data + 0, received1);
   EXPECT_EQ(data + 3, received2);
   EXPECT_EQ(data + 6, received3);
-  EXPECT_EQ(NULL, received4);
+  EXPECT_EQ(nullptr, received4);
 }
 
 TEST(Strings, CString) {

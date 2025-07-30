@@ -30,6 +30,10 @@
 
 // stackwalker_arm_unittest.cc: Unit tests for StackwalkerARM class.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include <string.h>
 #include <string>
 #include <vector>
@@ -148,7 +152,7 @@ TEST_F(SanityCheck, NoResolver) {
   // Since we have no call frame information, and all unwinding
   // requires call frame information, the stack walk will end after
   // the first frame.
-  StackFrameSymbolizer frame_symbolizer(NULL, NULL);
+  StackFrameSymbolizer frame_symbolizer(nullptr, nullptr);
   StackwalkerARM walker(&system_info, &raw_context, -1, &stack_region, &modules,
                         &frame_symbolizer);
   // This should succeed even without a resolver or supplier.
@@ -193,7 +197,7 @@ TEST_F(GetContextFrame, Simple) {
 // without stack memory present.
 TEST_F(GetContextFrame, NoStackMemory) {
   StackFrameSymbolizer frame_symbolizer(&supplier, &resolver);
-  StackwalkerARM walker(&system_info, &raw_context, -1, NULL, &modules,
+  StackwalkerARM walker(&system_info, &raw_context, -1, nullptr, &modules,
                         &frame_symbolizer);
   vector<const CodeModule*> modules_without_symbols;
   vector<const CodeModule*> modules_with_corrupt_symbols;

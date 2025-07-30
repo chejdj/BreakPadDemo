@@ -30,6 +30,11 @@
 
 // dwarf2reader_cfi_unittest.cc: Unit tests for google_breakpad::CallFrameInfo
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
+#include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
 

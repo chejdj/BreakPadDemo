@@ -31,12 +31,18 @@
 // test_assembler.cc: Implementation of google_breakpad::TestAssembler.
 // See test_assembler.h for details.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include "common/test_assembler.h"
 
 #include <assert.h>
 #include <stdio.h>
 
 #include <iterator>
+
+#include "common/memory_allocator.h"
 
 namespace google_breakpad {
 namespace test_assembler {
@@ -54,7 +60,7 @@ Label::~Label() {
 }
 
 Label& Label::operator=(uint64_t value) {
-  value_->Set(NULL, value);
+  value_->Set(nullptr, value);
   return *this;
 }
 
@@ -104,7 +110,7 @@ bool Label::IsKnownConstant(uint64_t* value_p) const {
   Binding* base;
   uint64_t addend;
   value_->Get(&base, &addend);
-  if (base != NULL) return false;
+  if (base != nullptr) return false;
   if (value_p) *value_p = addend;
   return true;
 }
@@ -126,7 +132,7 @@ bool Label::IsKnownOffsetFrom(const Label& label, uint64_t* offset_p) const
 Label::Binding::Binding() : base_(this), addend_(), reference_count_(1) { }
 
 Label::Binding::Binding(uint64_t addend)
-    : base_(NULL), addend_(addend), reference_count_(1) { }
+    : base_(nullptr), addend_(addend), reference_count_(1) { }
 
 Label::Binding::~Binding() {
   assert(reference_count_ == 0);
@@ -141,7 +147,7 @@ void Label::Binding::Set(Binding* binding, uint64_t addend) {
   } else if (!base_) {
     // We are a known constant, but BINDING may not be, so turn the
     // tables and try to set BINDING's value instead.
-    binding->Set(NULL, addend_ - addend);
+    binding->Set(nullptr, addend_ - addend);
   } else {
     if (binding) {
       // Find binding's final value. Since the final value is always either
@@ -323,7 +329,7 @@ Section& Section::ULEB128(uint64_t value) {
 Section& Section::Align(size_t alignment, uint8_t pad_byte) {
   // ALIGNMENT must be a power of two.
   assert(((alignment - 1) & alignment) == 0);
-  size_t new_size = (contents_.size() + alignment - 1) & ~(alignment - 1);
+  size_t new_size = PageAllocator::AlignUp(contents_.size(), alignment);
   contents_.append(new_size - contents_.size(), pad_byte);
   assert((contents_.size() & (alignment - 1)) == 0);
   return *this;

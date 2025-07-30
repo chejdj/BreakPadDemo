@@ -30,10 +30,15 @@
 //
 // See microdump_processor.h for documentation.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include "google_breakpad/processor/microdump_processor.h"
 
 #include <assert.h>
 
+#include <memory>
 #include <string>
 
 #include "common/using_std_string.h"
@@ -60,16 +65,16 @@ ProcessResult MicrodumpProcessor::Process(Microdump *microdump,
   process_state->Clear();
 
   process_state->modules_ = microdump->GetModules()->Copy();
-  scoped_ptr<Stackwalker> stackwalker(
+  std::unique_ptr<Stackwalker> stackwalker(
       Stackwalker::StackwalkerForCPU(
                             &process_state->system_info_,
                             microdump->GetContext(),
                             microdump->GetMemory(),
                             process_state->modules_,
-                            /* unloaded_modules= */ NULL,
+                            /* unloaded_modules= */ nullptr,
                             frame_symbolizer_));
 
-  scoped_ptr<CallStack> stack(new CallStack());
+  std::unique_ptr<CallStack> stack(new CallStack());
   if (stackwalker.get()) {
     if (!stackwalker->Walk(stack.get(),
                            &process_state->modules_without_symbols_,

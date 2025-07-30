@@ -28,14 +28,17 @@
 
 // Author: Alfred Peng
 
-#include <cassert>
-#include <ctime>
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
 
 #include "common/solaris/guid_creator.h"
+
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <unistd.h>
 
 //
 // GUIDGenerator
@@ -47,7 +50,7 @@
 class GUIDGenerator {
  public:
   GUIDGenerator() {
-    srandom(time(NULL));
+    srandom(time(nullptr));
   }
 
   bool CreateGUID(GUID *guid) const {

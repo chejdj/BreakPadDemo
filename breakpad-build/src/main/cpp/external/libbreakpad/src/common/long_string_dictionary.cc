@@ -26,6 +26,10 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include "common/long_string_dictionary.h"
 
 #include <assert.h>
@@ -160,7 +164,7 @@ const string LongStringDictionary::GetValueForKey(const char* key) const {
     const char* segment_value =
         SimpleStringDictionary::GetValueForKey(segment_key);
 
-    if (segment_value != NULL) {
+    if (segment_value != nullptr) {
       found_segment = true;
       return_value.append(segment_value);
     } else {

@@ -33,6 +33,10 @@
 //  ver: the product version
 //  symbol_file: the breakpad format symbol file
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -74,7 +78,7 @@ static void Start(Options *options) {
                                          options->proxy_user_pwd,
                                          "",
                                          &response,
-                                         NULL,
+                                         nullptr,
                                          &error);
 
   if (success) {

@@ -26,6 +26,10 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include <stdio.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -34,7 +38,7 @@ namespace google_breakpad {
 
 void LaunchReporter(const char *reporter_executable_path,
                     const char *config_file_path) {
-  const char* argv[] = { reporter_executable_path, config_file_path, NULL };
+  const char* argv[] = { reporter_executable_path, config_file_path, nullptr };
 
   // Launch the reporter
   pid_t pid = fork();

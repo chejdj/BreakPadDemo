@@ -33,14 +33,19 @@
 //
 // Author: Mark Mentovai
 
-#include <windows.h>
-#include <dbghelp.h>
-#include <pathcch.h>
-
-#include <cassert>
-#include <cstdio>
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
 
 #include "tools/windows/converter/ms_symbol_server_converter.h"
+
+#include <windows.h>
+
+#include <assert.h>
+#include <dbghelp.h>
+#include <pathcch.h>
+#include <stdio.h>
+
 #include "common/windows/pdb_source_line_writer.h"
 #include "common/windows/pe_source_line_writer.h"
 #include "common/windows/string_utils-inl.h"
@@ -328,7 +333,7 @@ MSSymbolServerConverter::LocateFile(const string& debug_or_code_file,
   // Do the lookup.
   char path[MAX_PATH];
   if (!SymFindFileInPath(
-          process, NULL,
+          process, nullptr,
           const_cast<char*>(debug_or_code_file.c_str()),
           const_cast<void*>(identifier.guid_or_signature_pointer()),
           identifier.age(), 0,
@@ -594,7 +599,7 @@ MSSymbolServerConverter::LocateAndConvertSymbolFile(
 
   *converted_symbol_file = pdb_file.substr(0, pdb_file.length() - 4) + ".sym";
 
-  FILE* converted_output = NULL;
+  FILE* converted_output = nullptr;
 #if _MSC_VER >= 1400  // MSVC 2005/8
   errno_t err;
   if ((err = fopen_s(&converted_output, converted_symbol_file->c_str(), "w"))
@@ -690,7 +695,7 @@ MSSymbolServerConverter::LocateAndConvertPEFile(
 
   *converted_symbol_file = pe_file.substr(0, pe_file.length() - 4) + ".sym";
 
-  FILE* converted_output = NULL;
+  FILE* converted_output = nullptr;
 #if _MSC_VER >= 1400  // MSVC 2005/8
   errno_t err;
   if ((err = fopen_s(&converted_output, converted_symbol_file->c_str(), "w"))

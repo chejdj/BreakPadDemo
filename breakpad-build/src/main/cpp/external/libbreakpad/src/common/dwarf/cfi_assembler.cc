@@ -31,6 +31,10 @@
 // cfi_assembler.cc: Implementation of google_breakpad::CFISection class.
 // See cfi_assembler.h for details.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include "common/dwarf/cfi_assembler.h"
 
 #include <assert.h>
@@ -115,7 +119,7 @@ CFISection& CFISection::FinishEntry() {
   Align(address_size_, DW_CFA_nop);
   entry_length_->length = Here() - entry_length_->start;
   delete entry_length_;
-  entry_length_ = NULL;
+  entry_length_ = nullptr;
   in_fde_ = false;
   return *this;
 }

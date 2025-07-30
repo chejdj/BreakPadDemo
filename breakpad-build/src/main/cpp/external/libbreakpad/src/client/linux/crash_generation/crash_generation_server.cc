@@ -26,6 +26,10 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include <assert.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -101,7 +105,7 @@ CrashGenerationServer::Start()
   control_pipe_in_ = control_pipe[0];
   control_pipe_out_ = control_pipe[1];
 
-  if (pthread_create(&thread_, NULL,
+  if (pthread_create(&thread_, nullptr,
                      ThreadMain, reinterpret_cast<void*>(this)))
     return false;
 
@@ -326,7 +330,7 @@ void*
 CrashGenerationServer::ThreadMain(void* arg)
 {
   reinterpret_cast<CrashGenerationServer*>(arg)->Run();
-  return NULL;
+  return nullptr;
 }
 
 }  // namespace google_breakpad

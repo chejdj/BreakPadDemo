@@ -26,6 +26,10 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include "common/windows/dia_util.h"
 
 #include <atlbase.h>
@@ -77,7 +81,7 @@ bool FindTable(REFIID iid, IDiaSession* session, void** table) {
   ULONG fetched = 0;
   while (SUCCEEDED(enum_tables->Next(1, &temp_table, &fetched)) &&
          fetched == 1) {
-    void* temp = NULL;
+    void* temp = nullptr;
     if (SUCCEEDED(temp_table->QueryInterface(iid, &temp))) {
       *table = temp;
       return true;

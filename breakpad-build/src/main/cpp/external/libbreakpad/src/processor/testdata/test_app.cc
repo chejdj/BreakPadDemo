@@ -31,6 +31,10 @@
 //   google_breakpad/src/client/windows/releasestaticcrt/exception_handler.lib
 // Then run test_app to generate a dump, and dump_syms to create the .sym file.
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>  // Must come first
+#endif
+
 #include <stdio.h>
 
 #include "client/windows/handler/exception_handler.h"
@@ -60,7 +64,7 @@ static void CrashFunction() {
 
 int main(int argc, char** argv) {
   google_breakpad::ExceptionHandler eh(
-      L".", NULL, callback, NULL,
+      L".", nullptr, callback, nullptr,
       google_breakpad::ExceptionHandler::HANDLER_ALL);
   CrashFunction();
   printf("did not crash?\n");
